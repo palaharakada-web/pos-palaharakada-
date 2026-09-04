@@ -1,0 +1,8 @@
+{
+  "name": "CM Palaharakada  POS \u0026 Billing Management System",
+  "description": "Point-of-Sale billing application with staff POS-only access and full admin control for sales ledgers, customer balances, inventory, and staff management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
