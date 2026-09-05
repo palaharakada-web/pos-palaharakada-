@@ -12,7 +12,12 @@ import {
   X,
   Boxes,
   Tag,
+  Barcode,
+  Sparkles,
+  Printer,
 } from 'lucide-react';
+import { BarcodeLabelModal } from './BarcodeLabelModal';
+import { generateStandardBarcode } from '../utils/barcodeUtils';
 
 export const InventoryManager: React.FC = () => {
   const { products, addProduct, updateProduct, deleteProduct } = useApp();
@@ -21,22 +26,27 @@ export const InventoryManager: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
 
   // New product form
   const [formData, setFormData] = useState<{
     code: string;
+    barcode: string;
     name: string;
     category: string;
     rate: number;
+    wholesaleRate: number;
     costPrice: number;
     unit: ProductUnit;
     stock: number;
     minStockAlert: number;
   }>({
     code: '',
+    barcode: '',
     name: '',
     category: 'Snacks',
     rate: 100,
+    wholesaleRate: 85,
     costPrice: 70,
     unit: 'kg',
     stock: 20,
@@ -56,11 +66,14 @@ export const InventoryManager: React.FC = () => {
 
   const handleOpenAdd = () => {
     const nextCode = `ITM-${products.length + 1}`;
+    const autoBarcode = generateStandardBarcode(nextCode);
     setFormData({
       code: nextCode,
+      barcode: autoBarcode,
       name: '',
       category: 'Snacks',
       rate: 100,
+      wholesaleRate: 85,
       costPrice: 70,
       unit: 'kg',
       stock: 20,
@@ -73,11 +86,16 @@ export const InventoryManager: React.FC = () => {
     e.preventDefault();
     if (!formData.name.trim()) return alert('Product name is required');
 
+    const code = formData.code.trim() || `ITM-${Date.now().toString().slice(-3)}`;
+    const barcode = formData.barcode.trim() || generateStandardBarcode(code);
+
     addProduct({
-      code: formData.code.trim() || `ITM-${Date.now().toString().slice(-3)}`,
+      code,
+      barcode,
       name: formData.name.trim(),
       category: formData.category,
       rate: Number(formData.rate) || 0,
+      wholesaleRate: Number(formData.wholesaleRate) || Number(formData.rate) || 0,
       costPrice: Number(formData.costPrice) || 0,
       unit: formData.unit,
       stock: Number(formData.stock) || 0,
@@ -94,8 +112,10 @@ export const InventoryManager: React.FC = () => {
     updateProduct(editingProduct.id, {
       name: editingProduct.name,
       code: editingProduct.code,
+      barcode: editingProduct.barcode || generateStandardBarcode(editingProduct.code),
       category: editingProduct.category,
       rate: Number(editingProduct.rate) || 0,
+      wholesaleRate: Number(editingProduct.wholesaleRate) || Number(editingProduct.rate) || 0,
       costPrice: Number(editingProduct.costPrice) || 0,
       unit: editingProduct.unit,
       stock: Number(editingProduct.stock) || 0,
@@ -188,13 +208,15 @@ export const InventoryManager: React.FC = () => {
             <thead>
               <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase text-[11px] font-semibold tracking-wider">
                 <th className="py-2.5 px-3">Item Code</th>
+                <th className="py-2.5 px-3">Barcode</th>
                 <th className="py-2.5 px-3">Product Name</th>
                 <th className="py-2.5 px-3">Category</th>
                 <th className="py-2.5 px-3">Base Unit</th>
-                <th className="py-2.5 px-3 text-right">Cost Price (₹)</th>
-                <th className="py-2.5 px-3 text-right">Selling Rate (₹)</th>
+                <th className="py-2.5 px-3 text-right">Cost (₹)</th>
+                <th className="py-2.5 px-3 text-right">Retail (₹)</th>
+                <th className="py-2.5 px-3 text-right">Wholesale (₹)</th>
                 <th className="py-2.5 px-3 text-center">Stock Level</th>
-                <th className="py-2.5 px-3 text-center">Quick Stock (+/-)</th>
+                <th className="py-2.5 px-3 text-center">Quick Stock</th>
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -205,6 +227,12 @@ export const InventoryManager: React.FC = () => {
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                     <td className="py-2.5 px-3 font-mono font-bold text-slate-500 whitespace-nowrap">
                       {p.code}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 text-[11px] border border-slate-200">
+                        <Barcode className="w-3.5 h-3.5 text-slate-500" />
+                        <span>{p.barcode || p.code}</span>
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 font-bold text-slate-800 whitespace-nowrap">
                       {p.name}
@@ -222,6 +250,9 @@ export const InventoryManager: React.FC = () => {
                     </td>
                     <td className="py-2.5 px-3 text-right font-black text-slate-900 whitespace-nowrap">
                       ₹{p.rate.toFixed(2)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-amber-700 whitespace-nowrap">
+                      ₹{(p.wholesaleRate || p.rate).toFixed(2)}
                     </td>
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       <span
@@ -261,7 +292,15 @@ export const InventoryManager: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setBarcodeProduct(p)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-purple-50 text-purple-700 hover:bg-purple-100 text-[11px] font-bold border border-purple-200 cursor-pointer transition-colors"
+                          title="Print Barcode & Weighing Label"
+                        >
+                          <Printer className="w-3 h-3" />
+                          Barcode
+                        </button>
                         <button
                           onClick={() => setEditingProduct(p)}
                           className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors"
@@ -315,7 +354,14 @@ export const InventoryManager: React.FC = () => {
                   <input
                     type="text"
                     value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                    onChange={(e) => {
+                      const newCode = e.target.value;
+                      setFormData({
+                        ...formData,
+                        code: newCode,
+                        barcode: formData.barcode || generateStandardBarcode(newCode),
+                      });
+                    }}
                     className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500"
                     required
                   />
@@ -342,6 +388,33 @@ export const InventoryManager: React.FC = () => {
               </div>
 
               <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">
+                    Barcode (EAN-13 / Custom)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        barcode: generateStandardBarcode(formData.code || 'ITEM'),
+                      });
+                    }}
+                    className="text-[11px] font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3" /> Auto-Generate
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={formData.barcode}
+                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                  placeholder="e.g. 8901234567890 or custom barcode"
+                  className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Product Name *
                 </label>
@@ -355,7 +428,7 @@ export const InventoryManager: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Unit
@@ -373,7 +446,7 @@ export const InventoryManager: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Cost Price (₹)
+                    Cost (₹)
                   </label>
                   <input
                     type="number"
@@ -384,7 +457,7 @@ export const InventoryManager: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Selling Rate (₹) *
+                    Retail (₹) *
                   </label>
                   <input
                     type="number"
@@ -392,6 +465,17 @@ export const InventoryManager: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, rate: parseFloat(e.target.value) || 0 })}
                     className="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 text-blue-600"
                     required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Wholesale (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.wholesaleRate}
+                    onChange={(e) => setFormData({ ...formData, wholesaleRate: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-amber-500 text-amber-700"
                   />
                 </div>
               </div>
@@ -523,6 +607,32 @@ export const InventoryManager: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Barcode (EAN-13 / Custom)
+                  </label>
+                  <input
+                    type="text"
+                    value={editingProduct.barcode || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, barcode: e.target.value })}
+                    placeholder="Custom barcode"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Wholesale Rate (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={editingProduct.wholesaleRate ?? editingProduct.rate}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, wholesaleRate: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2.5 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-amber-500 text-amber-700"
+                  />
+                </div>
+              </div>
+
               <div className="pt-2 flex gap-2">
                 <button
                   type="button"
@@ -541,6 +651,14 @@ export const InventoryManager: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Barcode & Weight Label Generator Modal */}
+      {barcodeProduct && (
+        <BarcodeLabelModal
+          product={barcodeProduct}
+          onClose={() => setBarcodeProduct(null)}
+        />
       )}
     </div>
   );

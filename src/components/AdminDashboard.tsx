@@ -14,10 +14,24 @@ import {
   Users,
   Award,
   CloudUpload,
+  Zap,
+  CalendarCheck,
+  Landmark,
+  BookOpen,
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
-  const { invoices, customers, products, setActiveTab } = useApp();
+  const {
+    invoices,
+    customers,
+    products,
+    attendance,
+    salaries,
+    journals,
+    setActiveTab,
+    autoBackupEnabled,
+    lastAutoBackupTime,
+  } = useApp();
 
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'month' | 'custom'>('all');
   const [customStart, setCustomStart] = useState<string>('');
@@ -171,8 +185,17 @@ export const AdminDashboard: React.FC = () => {
             onClick={() => setIsBackupModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs transition-all cursor-pointer"
           >
-            <CloudUpload className="w-3.5 h-3.5" />
-            <span>Google Sheets Backup</span>
+            {autoBackupEnabled ? (
+              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+            ) : (
+              <CloudUpload className="w-3.5 h-3.5" />
+            )}
+            <span>Google Sheets ERP</span>
+            {autoBackupEnabled && (
+              <span className="text-[10px] bg-emerald-800 text-emerald-100 px-1.5 py-0.5 rounded font-mono font-bold">
+                AUTO ON
+              </span>
+            )}
           </button>
 
           {dateFilter === 'custom' && (
@@ -438,6 +461,94 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Complete ERP Hub Quick Access Cards */}
+      <div className="bg-white rounded-xl p-4 sm:p-5 shadow-xs border border-slate-200">
+        <h3 className="text-sm font-bold text-slate-800 mb-3 tracking-tight">
+          ERP Operational Modules & Back-Office Controls
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div
+            onClick={() => setActiveTab('attendance')}
+            className="p-3.5 rounded-xl border border-slate-200 hover:border-blue-500 bg-slate-50 hover:bg-white transition-all cursor-pointer group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <CalendarCheck className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                {attendance.length} Logs
+              </span>
+            </div>
+            <div className="text-xs font-bold text-slate-800 group-hover:text-blue-600">
+              Attendance & Shifts
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Daily punch logs, hours worked & staff duty tracking
+            </div>
+          </div>
+
+          <div
+            onClick={() => setActiveTab('attendance')}
+            className="p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-white transition-all cursor-pointer group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                <Banknote className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                {salaries.length} Vouchers
+              </span>
+            </div>
+            <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-600">
+              Staff Salaries & Payroll
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Wage calculation, bonuses, deductions & instant vouchers
+            </div>
+          </div>
+
+          <div
+            onClick={() => setActiveTab('accounting')}
+            className="p-3.5 rounded-xl border border-slate-200 hover:border-indigo-500 bg-slate-50 hover:bg-white transition-all cursor-pointer group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                <Landmark className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                {journals.length} JVs
+              </span>
+            </div>
+            <div className="text-xs font-bold text-slate-800 group-hover:text-indigo-600">
+              Accounts & Trial Balance
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              General ledger, double-entry JV posting & P&L report
+            </div>
+          </div>
+
+          <div
+            onClick={() => setActiveTab('inventory')}
+            className="p-3.5 rounded-xl border border-slate-200 hover:border-amber-500 bg-slate-50 hover:bg-white transition-all cursor-pointer group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                <Package className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                {products.length} Items
+              </span>
+            </div>
+            <div className="text-xs font-bold text-slate-800 group-hover:text-amber-700">
+              Inventory & Barcodes
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Weight scale barcode printing, retail & wholesale rates
+            </div>
+          </div>
         </div>
       </div>
 

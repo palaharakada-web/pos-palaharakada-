@@ -8,6 +8,9 @@ import {
   ExpenseEntry,
   CartItem,
   PaymentMode,
+  StaffAttendance,
+  StaffSalaryPayment,
+  JournalEntry,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -16,7 +19,11 @@ import {
   INITIAL_INVOICES,
   INITIAL_EXPENSES,
   INITIAL_CASHBOOK,
+  INITIAL_ATTENDANCE,
+  INITIAL_SALARIES,
+  INITIAL_JOURNALS,
 } from '../data/seedData';
+import { syncStoreToAppsScriptWebhook } from '../services/googleSheetsService';
 
 interface AppContextType {
   currentUser: User | null;
@@ -26,6 +33,9 @@ interface AppContextType {
   invoices: SaleInvoice[];
   expenses: ExpenseEntry[];
   cashBook: CashBookEntry[];
+  attendance: StaffAttendance[];
+  salaries: StaffSalaryPayment[];
+  journals: JournalEntry[];
   activeTab: string;
   setActiveTab: (tab: string) => void;
   isLoginModalOpen: boolean;
@@ -33,6 +43,7 @@ interface AppContextType {
   login: (loginId: string, pin: string) => { success: boolean; message?: string };
   logout: () => void;
   switchUser: (loginId: string) => void;
+  changePassword: (oldPin: string, newPin: string) => { success: boolean; message?: string };
   // POS & Sales
   createSale: (data: {
     customerName: string;
@@ -50,14 +61,30 @@ interface AppContextType {
   updateProduct: (id: string, product: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
   // Staff
-  addStaff: (staffData: { loginId: string; name: string; pin: string; phone?: string; role: 'admin' | 'staff' }) => { success: boolean; message?: string };
+  addStaff: (staffData: { loginId: string; name: string; pin: string; phone?: string; role: 'admin' | 'staff'; baseSalary?: number }) => { success: boolean; message?: string };
   toggleStaffStatus: (id: string) => void;
   updateStaffPin: (id: string, newPin: string) => void;
+  updateStaffSalaryRate: (id: string, baseSalary: number) => void;
+  // Staff Attendance & Salary
+  markAttendance: (record: Omit<StaffAttendance, 'id'>) => void;
+  recordSalaryPayment: (salary: Omit<StaffSalaryPayment, 'id' | 'voucherNo' | 'paidBy'>) => void;
+  // Accounts Department
+  addJournalEntry: (entry: Omit<JournalEntry, 'id' | 'voucherNo' | 'createdBy'>) => void;
   // Customer & Credit
   addCustomer: (customer: Omit<Customer, 'id' | 'totalPurchases' | 'totalPaid' | 'balanceDue' | 'lastVisit'>) => Customer;
   recordCustomerPayment: (customerId: string, amount: number, paymentMode: 'Cash' | 'UPI', note?: string) => void;
   // Expenses
   addExpense: (expense: Omit<ExpenseEntry, 'id' | 'recordedBy'>) => void;
+  // Auto-backup configuration
+  autoBackupEnabled: boolean;
+  setAutoBackupEnabled: (enabled: boolean) => void;
+  autoBackupInterval: number; // in minutes (0 = only on sale, 5, 15, 30, 60)
+  setAutoBackupInterval: (interval: number) => void;
+  appsScriptWebhookUrl: string;
+  setAppsScriptWebhookUrl: (url: string) => void;
+  triggerAutoBackup: () => Promise<void>;
+  isAutoBackingUp: boolean;
+  lastAutoBackupTime: string | null;
   // System
   resetAllData: () => void;
 }
@@ -109,8 +136,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_CASHBOOK;
   });
 
+  const [attendance, setAttendance] = useState<StaffAttendance[]>(() => {
+    const saved = localStorage.getItem('pos_attendance');
+    return saved ? JSON.parse(saved) : INITIAL_ATTENDANCE;
+  });
+
+  const [salaries, setSalaries] = useState<StaffSalaryPayment[]>(() => {
+    const saved = localStorage.getItem('pos_salaries');
+    return saved ? JSON.parse(saved) : INITIAL_SALARIES;
+  });
+
+  const [journals, setJournals] = useState<JournalEntry[]>(() => {
+    const saved = localStorage.getItem('pos_journals');
+    return saved ? JSON.parse(saved) : INITIAL_JOURNALS;
+  });
+
   const [activeTab, setActiveTabState] = useState<string>('pos');
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+
+  // Auto-backup states
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('pos_auto_backup_enabled') !== 'false'; // default true
+  });
+  const [autoBackupInterval, setAutoBackupInterval] = useState<number>(() => {
+    return Number(localStorage.getItem('pos_auto_backup_interval')) || 15; // default every 15 mins
+  });
+  const [appsScriptWebhookUrl, setAppsScriptWebhookUrl] = useState<string>(() => {
+    return localStorage.getItem('pos_appsscript_webhook_url') || '';
+  });
+  const [isAutoBackingUp, setIsAutoBackingUp] = useState<boolean>(false);
+  const [lastAutoBackupTime, setLastAutoBackupTime] = useState<string | null>(() => {
+    return localStorage.getItem('pos_last_auto_backup_time') || null;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('pos_auto_backup_enabled', String(autoBackupEnabled));
+  }, [autoBackupEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_auto_backup_interval', String(autoBackupInterval));
+  }, [autoBackupInterval]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_appsscript_webhook_url', appsScriptWebhookUrl);
+  }, [appsScriptWebhookUrl]);
+
+  // Automated backup function
+  const triggerAutoBackup = async () => {
+    const payload = {
+      users,
+      products,
+      customers,
+      invoices,
+      cashBook,
+      expenses,
+      attendance,
+      salaries,
+      journals,
+    };
+
+    // 1. Always save timestamped local snapshot in browser
+    const nowIso = new Date().toISOString();
+    localStorage.setItem('pos_auto_local_snapshot', JSON.stringify({
+      timestamp: nowIso,
+      payload,
+    }));
+    setLastAutoBackupTime(nowIso);
+    localStorage.setItem('pos_last_auto_backup_time', nowIso);
+
+    // 2. If Webhook URL is configured, push straight to Google Sheets
+    if (appsScriptWebhookUrl.trim()) {
+      try {
+        setIsAutoBackingUp(true);
+        await syncStoreToAppsScriptWebhook(payload, appsScriptWebhookUrl.trim());
+      } catch (err) {
+        console.warn('Background auto backup to Google Apps Script failed:', err);
+      } finally {
+        setIsAutoBackingUp(false);
+      }
+    }
+  };
+
+  // Timer-based automated backup
+  useEffect(() => {
+    if (!autoBackupEnabled || autoBackupInterval <= 0) return;
+
+    const intervalMs = autoBackupInterval * 60 * 1000;
+    const timer = setInterval(() => {
+      triggerAutoBackup();
+    }, intervalMs);
+
+    return () => clearInterval(timer);
+  }, [autoBackupEnabled, autoBackupInterval, users, products, customers, invoices, cashBook, expenses, attendance, salaries, journals, appsScriptWebhookUrl]);
 
   // Auto enforce role boundaries: staff can ONLY access 'pos' or 'search'
   const setActiveTab = (tab: string) => {
@@ -163,6 +280,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('pos_cashbook', JSON.stringify(cashBook));
   }, [cashBook]);
 
+  useEffect(() => {
+    localStorage.setItem('pos_attendance', JSON.stringify(attendance));
+  }, [attendance]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_salaries', JSON.stringify(salaries));
+  }, [salaries]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_journals', JSON.stringify(journals));
+  }, [journals]);
+
   // Authentication methods
   const login = (loginId: string, pin: string) => {
     const cleanId = loginId.trim().toLowerCase();
@@ -206,6 +335,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (found.role === 'staff') {
         setActiveTabState('pos');
       }
+    }
+  };
+
+  const changePassword = (oldPin: string, newPin: string) => {
+    if (!currentUser) {
+      return { success: false, message: 'No user is currently logged in.' };
+    }
+    if (currentUser.pin !== oldPin.trim()) {
+      return { success: false, message: 'Current password/PIN is incorrect.' };
+    }
+    if (!newPin || newPin.trim().length < 4) {
+      return { success: false, message: 'New password/PIN must be at least 4 digits/characters.' };
+    }
+
+    const updatedUser = { ...currentUser, pin: newPin.trim() };
+    setCurrentUser(updatedUser);
+    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+    triggerAutoBackupAfterChange();
+    return { success: true };
+  };
+
+  const triggerAutoBackupAfterChange = () => {
+    if (autoBackupEnabled) {
+      setTimeout(() => {
+        triggerAutoBackup();
+      }, 400);
     }
   };
 
@@ -373,6 +528,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCashBook((prev) => [...prev, newCashEntry]);
     }
 
+    // 5. Automated Backup Trigger after sale completes
+    if (autoBackupEnabled) {
+      setTimeout(() => {
+        triggerAutoBackup();
+      }, 500);
+    }
+
     return newInvoice;
   };
 
@@ -381,14 +543,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const id = `PRD-${Date.now().toString().slice(-4)}`;
     const newProduct: Product = { ...productData, id };
     setProducts((prev) => [newProduct, ...prev]);
+    triggerAutoBackupAfterChange();
   };
 
   const updateProduct = (id: string, changes: Partial<Product>) => {
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...changes } : p)));
+    triggerAutoBackupAfterChange();
   };
 
   const deleteProduct = (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
+    triggerAutoBackupAfterChange();
   };
 
   // Staff management
@@ -398,6 +563,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pin: string;
     phone?: string;
     role: 'admin' | 'staff';
+    baseSalary?: number;
   }) => {
     const cleanId = staffData.loginId.trim().toLowerCase();
     if (users.some((u) => u.loginId.toLowerCase() === cleanId)) {
@@ -412,10 +578,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pin: staffData.pin.trim(),
       active: true,
       phone: staffData.phone?.trim(),
+      baseSalary: staffData.baseSalary || 15000,
       createdAt: new Date().toISOString().split('T')[0],
     };
 
     setUsers((prev) => [...prev, newStaff]);
+    triggerAutoBackupAfterChange();
     return { success: true };
   };
 
@@ -428,6 +596,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return u;
       })
     );
+    triggerAutoBackupAfterChange();
   };
 
   const updateStaffPin = (id: string, newPin: string) => {
@@ -439,6 +608,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return u;
       })
     );
+    triggerAutoBackupAfterChange();
+  };
+
+  const updateStaffSalaryRate = (id: string, baseSalary: number) => {
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === id) {
+          return { ...u, baseSalary: Math.max(0, baseSalary) };
+        }
+        return u;
+      })
+    );
+    triggerAutoBackupAfterChange();
+  };
+
+  // Staff Attendance & Salary Payments
+  const markAttendance = (record: Omit<StaffAttendance, 'id'>) => {
+    const id = `ATT-${Date.now().toString().slice(-5)}`;
+    const newRecord: StaffAttendance = { ...record, id };
+
+    // Update if already marked for same user and same date, else append
+    setAttendance((prev) => {
+      const existsIndex = prev.findIndex((a) => a.userId === record.userId && a.date === record.date);
+      if (existsIndex >= 0) {
+        const copy = [...prev];
+        copy[existsIndex] = { ...newRecord, id: prev[existsIndex].id };
+        return copy;
+      }
+      return [newRecord, ...prev];
+    });
+
+    triggerAutoBackupAfterChange();
+  };
+
+  const recordSalaryPayment = (salaryData: Omit<StaffSalaryPayment, 'id' | 'voucherNo' | 'paidBy'>) => {
+    const nextVch = `SAL-${Date.now().toString().slice(-4)}`;
+    const id = `SAL-${Date.now()}`;
+    const newPayment: StaffSalaryPayment = {
+      ...salaryData,
+      id,
+      voucherNo: nextVch,
+      paidBy: currentUser?.name || 'Admin',
+    };
+
+    setSalaries((prev) => [newPayment, ...prev]);
+
+    // 1. Post into Cash Book
+    const lastEntry = cashBook[cashBook.length - 1];
+    const previousBal = lastEntry ? lastEntry.balance : 0;
+    const newBal = previousBal - salaryData.netPaid;
+
+    const cbEntry: CashBookEntry = {
+      id: `CB-${Date.now()}`,
+      date: salaryData.date,
+      voucherNo: nextVch,
+      particulars: `Staff Salary: ${salaryData.userName} (${salaryData.month})`,
+      account: '5030 - Staff Wages & Salary',
+      mode: salaryData.paymentMode,
+      receipt: 0,
+      payment: salaryData.netPaid,
+      balance: newBal,
+      staffName: currentUser?.name || 'Admin',
+    };
+    setCashBook((prev) => [...prev, cbEntry]);
+
+    // 2. Post Journal Entry
+    const jrn: JournalEntry = {
+      id: `JRN-${Date.now()}`,
+      date: salaryData.date,
+      voucherNo: `JV-${nextVch}`,
+      description: `Staff Salary Disbursed to ${salaryData.userName} for ${salaryData.month}`,
+      debitAccount: '5030 - Staff Wages & Salary',
+      creditAccount: salaryData.paymentMode === 'Cash' ? '1010 - Cash in Till' : '1020 - Bank / UPI Account',
+      amount: salaryData.netPaid,
+      referenceType: 'Salary',
+      referenceId: id,
+      createdBy: currentUser?.name || 'Admin',
+    };
+    setJournals((prev) => [jrn, ...prev]);
+
+    triggerAutoBackupAfterChange();
+  };
+
+  // Accounts Journal Entries
+  const addJournalEntry = (entryData: Omit<JournalEntry, 'id' | 'voucherNo' | 'createdBy'>) => {
+    const id = `JRN-${Date.now().toString().slice(-5)}`;
+    const voucherNo = `JV-${Date.now().toString().slice(-4)}`;
+    const newJrn: JournalEntry = {
+      ...entryData,
+      id,
+      voucherNo,
+      createdBy: currentUser?.name || 'Admin',
+    };
+    setJournals((prev) => [newJrn, ...prev]);
+    triggerAutoBackupAfterChange();
   };
 
   // Customer actions
@@ -455,6 +719,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       lastVisit: new Date().toISOString().split('T')[0],
     };
     setCustomers((prev) => [newCustomer, ...prev]);
+    triggerAutoBackupAfterChange();
     return newCustomer;
   };
 
@@ -499,6 +764,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setCashBook((prev) => [...prev, entry]);
+    triggerAutoBackupAfterChange();
   };
 
   // Expenses
@@ -530,6 +796,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setCashBook((prev) => [...prev, cbEntry]);
+    triggerAutoBackupAfterChange();
   };
 
   // Reset demo data
@@ -541,6 +808,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('pos_invoices');
     localStorage.removeItem('pos_expenses');
     localStorage.removeItem('pos_cashbook');
+    localStorage.removeItem('pos_attendance');
+    localStorage.removeItem('pos_salaries');
+    localStorage.removeItem('pos_journals');
 
     setUsers(INITIAL_USERS);
     setCurrentUser(INITIAL_USERS[0]);
@@ -549,6 +819,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInvoices(INITIAL_INVOICES);
     setExpenses(INITIAL_EXPENSES);
     setCashBook(INITIAL_CASHBOOK);
+    setAttendance(INITIAL_ATTENDANCE);
+    setSalaries(INITIAL_SALARIES);
+    setJournals(INITIAL_JOURNALS);
     setActiveTabState('pos');
   };
 
@@ -562,6 +835,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         invoices,
         expenses,
         cashBook,
+        attendance,
+        salaries,
+        journals,
         activeTab,
         setActiveTab,
         isLoginModalOpen,
@@ -569,6 +845,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         login,
         logout,
         switchUser,
+        changePassword,
         createSale,
         addProduct,
         updateProduct,
@@ -576,9 +853,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addStaff,
         toggleStaffStatus,
         updateStaffPin,
+        updateStaffSalaryRate,
+        markAttendance,
+        recordSalaryPayment,
+        addJournalEntry,
         addCustomer,
         recordCustomerPayment,
         addExpense,
+        autoBackupEnabled,
+        setAutoBackupEnabled,
+        autoBackupInterval,
+        setAutoBackupInterval,
+        appsScriptWebhookUrl,
+        setAppsScriptWebhookUrl,
+        triggerAutoBackup,
+        isAutoBackingUp,
+        lastAutoBackupTime,
         resetAllData,
       }}
     >

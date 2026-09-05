@@ -15,10 +15,11 @@ import {
   X,
   AlertCircle,
   Award,
+  CalendarCheck,
 } from 'lucide-react';
 
 export const StaffManager: React.FC = () => {
-  const { users, addStaff, toggleStaffStatus, updateStaffPin, invoices, currentUser } = useApp();
+  const { users, addStaff, toggleStaffStatus, updateStaffPin, invoices, currentUser, setActiveTab } = useApp();
 
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
   const [resetPinUser, setResetPinUser] = useState<User | null>(null);
@@ -128,13 +129,22 @@ export const StaffManager: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-100 transition-colors cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          Create New Login ID
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('attendance')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+          >
+            <CalendarCheck className="w-4 h-4 text-blue-600" />
+            Attendance & Salaries
+          </button>
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm shadow-blue-100 transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Create New Login ID
+          </button>
+        </div>
       </div>
 
       {/* Role Guide Notice */}

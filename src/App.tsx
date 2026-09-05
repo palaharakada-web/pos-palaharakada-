@@ -10,6 +10,8 @@ import { CustomerBalancesView } from './components/CustomerBalancesView';
 import { InventoryManager } from './components/InventoryManager';
 import { StaffManager } from './components/StaffManager';
 import { CashBookView } from './components/CashBookView';
+import { StaffAttendanceSalaryView } from './components/StaffAttendanceSalaryView';
+import { AccountingModuleView } from './components/AccountingModuleView';
 import { ShieldAlert, LogIn } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -70,6 +72,10 @@ const AppContent: React.FC = () => {
         return <InventoryManager />;
       case 'staff':
         return <StaffManager />;
+      case 'attendance':
+        return <StaffAttendanceSalaryView />;
+      case 'accounting':
+        return <AccountingModuleView />;
       case 'cashbook':
         return <CashBookView />;
       default:

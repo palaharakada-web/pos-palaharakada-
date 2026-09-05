@@ -24,7 +24,12 @@ import {
   Layers,
   UserCheck,
   LogOut,
-  ExternalLink as OpenInNew
+  ExternalLink as OpenInNew,
+  Zap,
+  Clock,
+  Settings2,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export const GoogleSheetsBackupModal: React.FC<{
@@ -38,6 +43,15 @@ export const GoogleSheetsBackupModal: React.FC<{
     invoices,
     cashBook,
     expenses,
+    autoBackupEnabled,
+    setAutoBackupEnabled,
+    autoBackupInterval,
+    setAutoBackupInterval,
+    appsScriptWebhookUrl,
+    setAppsScriptWebhookUrl,
+    triggerAutoBackup,
+    isAutoBackingUp,
+    lastAutoBackupTime,
   } = useApp();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +60,9 @@ export const GoogleSheetsBackupModal: React.FC<{
   const [lastBackup, setLastBackup] = useState<BackupResult | null>(null);
   const [customSpreadsheetId, setCustomSpreadsheetId] = useState('');
   const [connectedUser, setConnectedUser] = useState(getCachedGoogleUser());
+  const [webhookInput, setWebhookInput] = useState(appsScriptWebhookUrl);
+  const [copiedScript, setCopiedScript] = useState(false);
+  const [autoBackupSuccessMsg, setAutoBackupSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('pos_last_sheets_backup');
@@ -278,15 +295,20 @@ export const GoogleSheetsBackupModal: React.FC<{
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
               <Layers className="w-4 h-4 text-emerald-600" />
-              Spreadsheet Tabs Created:
+              Complete 11-Tab ERP Accounting Tabs Synchronized:
             </div>
             <ul className="text-xs text-slate-600 grid grid-cols-1 sm:grid-cols-2 gap-1.5 list-disc list-inside">
-              <li><strong>Overview:</strong> Revenue, collection & expense summary</li>
-              <li><strong>Invoices_Ledger:</strong> Itemized bills with tax & customer info</li>
-              <li><strong>Inventory_Stock:</strong> Stock quantities, unit rates & cost prices</li>
-              <li><strong>Customers_Credit:</strong> Balances due, contact phone numbers</li>
-              <li><strong>CashBook_DayBook:</strong> Daily cash in / cash out vouchers</li>
-              <li><strong>Store_Expenses:</strong> Categorized store expenditures</li>
+              <li><strong>1. Overview:</strong> Executive KPIs, daily collection & margins</li>
+              <li><strong>2. Chart of Accounts:</strong> Master codes (1010, 1020, 4010, etc.)</li>
+              <li><strong>3. Sales Ledger:</strong> Invoice registry with customer details</li>
+              <li><strong>4. Sales Details:</strong> Itemized lines with rates and cashier</li>
+              <li><strong>5. Cash Book:</strong> Counter cash & UPI day book vouchers</li>
+              <li><strong>6. Expense Ledger:</strong> Utility, rent & payroll expenditures</li>
+              <li><strong>7. Inventory Ledger:</strong> Live stock count, cost & selling rates</li>
+              <li><strong>8. Debtors Ledger:</strong> Customer credit balances & dues</li>
+              <li><strong>9. General Ledger:</strong> Double-entry journal postings (Dr/Cr)</li>
+              <li><strong>10. Trial Balance:</strong> Balanced audit verification</li>
+              <li><strong>11. Profit & Loss:</strong> Income vs Expenses statement</li>
             </ul>
           </div>
 
@@ -307,6 +329,143 @@ export const GoogleSheetsBackupModal: React.FC<{
               </a>
             </div>
           )}
+
+          {/* AUTOMATIC BACKUP CONFIGURATION PANEL */}
+          <div className="bg-gradient-to-br from-emerald-50 via-teal-50/50 to-blue-50/40 p-4 sm:p-5 rounded-2xl border border-emerald-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    Automatic Real-Time Backup
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${autoBackupEnabled ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      {autoBackupEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Automatically saves a full backup snapshot whenever any sale is finalized.
+                  </p>
+                </div>
+              </div>
+
+              {/* Master Toggle */}
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoBackupEnabled}
+                  onChange={(e) => setAutoBackupEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
+            </div>
+
+            {/* Auto-Backup Status & Controls */}
+            {autoBackupEnabled && (
+              <div className="pt-2 border-t border-emerald-100 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {/* Interval Option */}
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                      Periodic Background Interval:
+                    </label>
+                    <select
+                      value={autoBackupInterval}
+                      onChange={(e) => setAutoBackupInterval(Number(e.target.value))}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                    >
+                      <option value={0}>Only immediately after each Sale</option>
+                      <option value={5}>Every 5 minutes + on every Sale</option>
+                      <option value={15}>Every 15 minutes + on every Sale (Recommended)</option>
+                      <option value={30}>Every 30 minutes + on every Sale</option>
+                      <option value={60}>Every 1 hour + on every Sale</option>
+                    </select>
+                  </div>
+
+                  {/* Last Auto Backup Timestamp */}
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-700">Latest Automatic Snapshot:</label>
+                    <div className="px-3 py-1.5 bg-white/80 border border-slate-200 rounded-lg text-slate-600 font-mono text-[11px] flex items-center justify-between">
+                      <span>
+                        {lastAutoBackupTime
+                          ? new Date(lastAutoBackupTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                          : 'Pending first transaction'}
+                      </span>
+                      {isAutoBackingUp ? (
+                        <span className="text-emerald-600 flex items-center gap-1 font-semibold animate-pulse">
+                          <RefreshCw className="w-3 h-3 animate-spin" /> Syncing...
+                        </span>
+                      ) : (
+                        <span className="text-emerald-700 flex items-center gap-1 font-semibold">
+                          <CheckCircle2 className="w-3 h-3" /> Ready
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Google Apps Script Direct Webhook Sync (Zero Popup) */}
+                <div className="p-3 bg-white/90 rounded-xl border border-emerald-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                      Google Apps Script Webhook URL (For Popup-Free Auto Sync):
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="Paste your deployed Google Apps Script Web App URL (https://script.google.com/macros/s/.../exec)"
+                      value={webhookInput}
+                      onChange={(e) => setWebhookInput(e.target.value)}
+                      className="flex-1 px-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppsScriptWebhookUrl(webhookInput.trim());
+                        setAutoBackupSuccessMsg('Google Apps Script URL saved! Auto-backups will stream directly to Google Sheets.');
+                        setTimeout(() => setAutoBackupSuccessMsg(null), 4000);
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                    >
+                      Save URL
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Paste your Apps Script Web App URL to push every sale directly into your Google Sheet silently in the background.
+                  </p>
+                </div>
+
+                {/* Trigger Instant Auto-Backup test */}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    disabled={isAutoBackingUp}
+                    onClick={async () => {
+                      await triggerAutoBackup();
+                      setAutoBackupSuccessMsg('Auto backup completed! Snapshot stored.');
+                      setTimeout(() => setAutoBackupSuccessMsg(null), 3000);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isAutoBackingUp ? 'animate-spin' : ''}`} />
+                    Test Auto-Backup Now
+                  </button>
+
+                  {autoBackupSuccessMsg && (
+                    <span className="text-xs text-emerald-700 font-semibold animate-in fade-in flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {autoBackupSuccessMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Actions */}
           <div className="space-y-4 pt-2">

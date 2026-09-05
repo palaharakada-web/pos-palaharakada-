@@ -17,6 +17,10 @@ import {
   BookOpen,
   Search,
   CloudUpload,
+  RefreshCw,
+  CheckCircle2,
+  CalendarCheck,
+  Landmark,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -27,6 +31,9 @@ export const Navbar: React.FC = () => {
     setIsLoginModalOpen,
     logout,
     resetAllData,
+    autoBackupEnabled,
+    isAutoBackingUp,
+    lastAutoBackupTime,
   } = useApp();
 
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -105,15 +112,35 @@ export const Navbar: React.FC = () => {
             </button>
           )}
 
-          {/* Google Sheets Backup Button */}
+          {/* Google Sheets Backup Button with Auto-Sync Status */}
           <button
             onClick={() => setIsBackupModalOpen(true)}
-            title="Google Sheets & Drive Backup"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-xs border border-emerald-200 transition-colors shadow-2xs cursor-pointer"
+            title={
+              isAutoBackingUp
+                ? 'Backing up now...'
+                : lastAutoBackupTime
+                ? `Auto-Backup Active • Last: ${new Date(lastAutoBackupTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : 'Google Sheets & Auto-Backup Settings'
+            }
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-xs border border-emerald-200 transition-colors shadow-2xs cursor-pointer relative"
           >
-            <CloudUpload className="w-3.5 h-3.5 text-emerald-600" />
+            {isAutoBackingUp ? (
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
+            ) : autoBackupEnabled ? (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+            ) : (
+              <CloudUpload className="w-3.5 h-3.5 text-emerald-600" />
+            )}
             <span className="hidden md:inline">Google Sheets Backup</span>
             <span className="md:hidden">Backup</span>
+            {autoBackupEnabled && (
+              <span className="hidden lg:inline text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-mono font-bold">
+                AUTO
+              </span>
+            )}
           </button>
 
           <div className="h-6 w-px bg-slate-200" />
@@ -230,7 +257,31 @@ export const Navbar: React.FC = () => {
                 }`}
               >
                 <UserCog className="w-3.5 h-3.5" />
-                Staff Management
+                Staff Access
+              </button>
+
+              <button
+                onClick={() => setActiveTab('attendance')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  activeTab === 'attendance'
+                    ? 'text-blue-600 bg-blue-50 font-semibold shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <CalendarCheck className="w-3.5 h-3.5" />
+                Attendance & Salaries
+              </button>
+
+              <button
+                onClick={() => setActiveTab('accounting')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  activeTab === 'accounting'
+                    ? 'text-blue-600 bg-blue-50 font-semibold shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Landmark className="w-3.5 h-3.5" />
+                Accounts & Ledgers
               </button>
 
               <button
@@ -242,7 +293,7 @@ export const Navbar: React.FC = () => {
                 }`}
               >
                 <BookOpen className="w-3.5 h-3.5" />
-                Cash Book & Expenses
+                Cash Book
               </button>
             </>
           ) : (

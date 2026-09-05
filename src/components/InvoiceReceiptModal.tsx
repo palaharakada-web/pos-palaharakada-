@@ -76,7 +76,13 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
               <CheckCircle className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-800">Order Billed Successfully!</h3>
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                Order Billed Successfully!
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Auto-Backed Up
+                </span>
+              </h3>
               <p className="text-xs text-slate-400 font-mono">Invoice: {invoice.invoiceNo}</p>
             </div>
           </div>

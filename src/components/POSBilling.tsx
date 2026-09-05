@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product, CartItem, ProductUnit, PaymentMode, Customer, SaleInvoice } from '../types';
 import {
@@ -18,20 +18,41 @@ import {
   Sparkles,
   AlertCircle,
   Percent,
+  RefreshCw,
+  Zap,
+  Barcode,
+  Scale,
 } from 'lucide-react';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
+import { parseScannedBarcode } from '../utils/barcodeUtils';
 
 export const POSBilling: React.FC = () => {
-  const { products, customers, createSale, currentUser } = useApp();
+  const {
+    products,
+    customers,
+    createSale,
+    currentUser,
+    autoBackupEnabled,
+    isAutoBackingUp,
+    lastAutoBackupTime,
+  } = useApp();
 
   // Billing header states
   const [billDate, setBillDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+
+  // Pricing Tier: Retail vs Wholesale
+  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale'>('retail');
 
   // Customer states
   const [custName, setCustName] = useState<string>('');
   const [custPhone, setCustPhone] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState<boolean>(false);
+
+  // Barcode scanner input state
+  const [barcodeScanInput, setBarcodeScanInput] = useState<string>('');
+  const [barcodeScanAlert, setBarcodeScanAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Catalog search & filter states
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -133,6 +154,120 @@ export const POSBilling: React.FC = () => {
     return 0;
   }, [paymentMode, amountReceived, grandTotal]);
 
+  // Helper to get active product rate based on pricing tier
+  const getProductActiveRate = (product: Product) => {
+    if (pricingTier === 'wholesale' && product.wholesaleRate && product.wholesaleRate > 0) {
+      return product.wholesaleRate;
+    }
+    return product.rate;
+  };
+
+  // Barcode Scanner handler (handles weight-embedded and standard barcodes)
+  const handleProcessScannedBarcode = (scannedCode: string) => {
+    const clean = scannedCode.trim();
+    if (!clean) return;
+
+    const parsed = parseScannedBarcode(clean);
+
+    if (parsed.isWeightBarcode && parsed.productCodeMatch && parsed.weightGrams) {
+      // Find product matching 4-digit code in product code or id
+      const targetProduct = products.find((p) => {
+        const digits = p.code.replace(/\D/g, '');
+        return (
+          digits === parsed.productCodeMatch ||
+          p.code.endsWith(parsed.productCodeMatch!) ||
+          p.barcode === clean
+        );
+      }) || products.find((p) => p.unit === 'kg');
+
+      if (!targetProduct) {
+        setBarcodeScanAlert({
+          type: 'error',
+          message: `Weight barcode parsed (${parsed.weightGrams}g) but product code "${parsed.productCodeMatch}" not found.`,
+        });
+        setTimeout(() => setBarcodeScanAlert(null), 4000);
+        return;
+      }
+
+      const activeRate = getProductActiveRate(targetProduct);
+      const weightKg = parsed.weightGrams / 1000;
+      const computedAmount = parseFloat((weightKg * activeRate).toFixed(2));
+
+      const newItem: CartItem = {
+        id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: targetProduct.id,
+        code: targetProduct.code,
+        name: `${targetProduct.name} (${parsed.weightGrams}g Scale)`,
+        qty: parsed.weightGrams,
+        unit: 'gram',
+        rate: activeRate,
+        amount: computedAmount,
+      };
+
+      setCart((prev) => [...prev, newItem]);
+      setBarcodeScanAlert({
+        type: 'success',
+        message: `Scanned Scale: ${targetProduct.name} - ${parsed.weightGrams}g (₹${computedAmount})`,
+      });
+      setTimeout(() => setBarcodeScanAlert(null), 3000);
+      setBarcodeScanInput('');
+      return;
+    }
+
+    // Standard barcode lookup
+    const matched = products.find(
+      (p) =>
+        p.barcode?.toLowerCase() === clean.toLowerCase() ||
+        p.code.toLowerCase() === clean.toLowerCase()
+    );
+
+    if (!matched) {
+      setBarcodeScanAlert({
+        type: 'error',
+        message: `No product found matching barcode "${clean}".`,
+      });
+      setTimeout(() => setBarcodeScanAlert(null), 3500);
+      return;
+    }
+
+    // If unit is kg, open modal for weight entry
+    if (matched.unit === 'kg') {
+      handleOpenAddModal(matched);
+      setBarcodeScanInput('');
+      return;
+    }
+
+    // Standard piece / pack add
+    const activeRate = getProductActiveRate(matched);
+    const existingIndex = cart.findIndex((item) => item.productId === matched.id && item.unit === matched.unit);
+    if (existingIndex > -1) {
+      const updated = [...cart];
+      const newQty = updated[existingIndex].qty + 1;
+      updated[existingIndex].qty = newQty;
+      updated[existingIndex].amount = parseFloat((newQty * updated[existingIndex].rate).toFixed(2));
+      setCart(updated);
+    } else {
+      const newItem: CartItem = {
+        id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: matched.id,
+        code: matched.code,
+        name: matched.name,
+        qty: 1,
+        unit: matched.unit,
+        rate: activeRate,
+        amount: activeRate,
+      };
+      setCart((prev) => [...prev, newItem]);
+    }
+
+    setBarcodeScanAlert({
+      type: 'success',
+      message: `Scanned & Added: ${matched.name} (₹${activeRate})`,
+    });
+    setTimeout(() => setBarcodeScanAlert(null), 2500);
+    setBarcodeScanInput('');
+  };
+
   // Cart operations
   const handleQuickAdd = (product: Product, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -142,6 +277,8 @@ export const POSBilling: React.FC = () => {
       handleOpenAddModal(product);
       return;
     }
+
+    const activeRate = getProductActiveRate(product);
 
     // Otherwise add 1 unit directly
     const existingIndex = cart.findIndex((item) => item.productId === product.id && item.unit === product.unit);
@@ -159,8 +296,8 @@ export const POSBilling: React.FC = () => {
         name: product.name,
         qty: 1,
         unit: product.unit,
-        rate: product.rate,
-        amount: product.rate,
+        rate: activeRate,
+        amount: activeRate,
       };
       setCart([...cart, newItem]);
     }
@@ -168,7 +305,7 @@ export const POSBilling: React.FC = () => {
 
   const handleOpenAddModal = (product: Product) => {
     setActiveItemForAdd(product);
-    setModalRate(product.rate);
+    setModalRate(getProductActiveRate(product));
     setModalUnit(product.unit);
     setModalQty(product.unit === 'kg' ? 0.5 : 1);
   };
@@ -307,12 +444,56 @@ export const POSBilling: React.FC = () => {
                 <Clock className="w-3 h-3" />
                 Live Register
               </span>
+              <span>•</span>
+              {autoBackupEnabled ? (
+                <span className="flex items-center gap-1 font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  {isAutoBackingUp ? (
+                    <>
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      Backing up...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-2.5 h-2.5 text-emerald-500 fill-emerald-500" />
+                      Auto-Backup Active
+                    </>
+                  )}
+                </span>
+              ) : (
+                <span className="text-slate-400">Manual Backup</span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Date Selector & Clean New Bill Button */}
-        <div className="flex items-center gap-2">
+        {/* Date Selector, Pricing Tier & Clean New Bill Button */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Retail vs Wholesale Pricing Switch */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setPricingTier('retail')}
+              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                pricingTier === 'retail'
+                  ? 'bg-white text-blue-700 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Retail Rate
+            </button>
+            <button
+              type="button"
+              onClick={() => setPricingTier('wholesale')}
+              className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                pricingTier === 'wholesale'
+                  ? 'bg-amber-600 text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Wholesale Rate
+            </button>
+          </div>
+
           <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600">
             <span className="font-semibold text-slate-400">Date:</span>
             <input
@@ -338,6 +519,49 @@ export const POSBilling: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* LEFT COLUMN: ITEM CATALOG (7 cols) */}
         <div className="lg:col-span-7 space-y-3">
+          {/* Barcode Quick Scanner Bar */}
+          <div className="bg-slate-900 text-white rounded-xl p-3 shadow-sm border border-slate-800">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleProcessScannedBarcode(barcodeScanInput);
+              }}
+              className="flex items-center gap-2"
+            >
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 rounded-lg text-emerald-400 text-xs font-mono">
+                <Barcode className="w-4 h-4" />
+                <span className="font-bold hidden sm:inline">BARCODE SCANNER</span>
+              </div>
+              <input
+                ref={barcodeInputRef}
+                type="text"
+                value={barcodeScanInput}
+                onChange={(e) => setBarcodeScanInput(e.target.value)}
+                placeholder="Scan barcode or type & press Enter (supports deli weight barcodes e.g. 200101003504)..."
+                className="flex-1 bg-slate-800 text-white placeholder-slate-400 px-3 py-1.5 rounded-lg text-xs font-mono outline-none border border-slate-700 focus:border-emerald-400"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Enter
+              </button>
+            </form>
+
+            {barcodeScanAlert && (
+              <div
+                className={`mt-2 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 ${
+                  barcodeScanAlert.type === 'success'
+                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
+                    : 'bg-rose-950/80 text-rose-300 border border-rose-800'
+                }`}
+              >
+                {barcodeScanAlert.type === 'success' ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                <span>{barcodeScanAlert.message}</span>
+              </div>
+            )}
+          </div>
+
           {/* Search & Category Tabs */}
           <div className="bg-white rounded-xl p-4 shadow-xs border border-slate-200 space-y-3">
             {/* Search Bar */}
@@ -347,7 +571,7 @@ export const POSBilling: React.FC = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search products or scan barcode (e.g. Banana, Plum, BC01)..."
+                placeholder="Search catalog by name or SKU..."
                 className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors shadow-xs"
               />
               {searchTerm && (
@@ -419,12 +643,26 @@ export const POSBilling: React.FC = () => {
                   {/* Price & Add Action */}
                   <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
                     <div>
-                      <span className="text-sm font-bold text-blue-600">
-                        ₹{product.rate}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-normal">
-                        /{product.unit}
-                      </span>
+                      {pricingTier === 'wholesale' && product.wholesaleRate ? (
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-amber-700">
+                            ₹{product.wholesaleRate}
+                            <span className="text-[10px] text-amber-600 font-normal">/{product.unit}</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 line-through">
+                            Retail: ₹{product.rate}
+                          </span>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="text-sm font-bold text-blue-600">
+                            ₹{product.rate}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-normal">
+                            /{product.unit}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <button
